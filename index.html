@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#111827">
+<meta name="description" content="シャドバの勝敗・デッキ・対面相性を記録する戦績アプリ">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>シャドバ戦績カウンター</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+:root{--bg:#0b1020;--card:#151d31;--card2:#1b263d;--text:#f5f7fb;--muted:#9aa7bd;--accent:#6ea8fe;--win:#35d07f;--lose:#ff5c6c;--line:#2b3852}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#0b1020,#10182b);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Noto Sans JP",sans-serif}
+.wrap{max-width:720px;margin:auto;padding:16px 14px 40px}.title{font-size:25px;font-weight:800;margin:4px 0 14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 8px 25px #0004}.label{font-size:12px;color:var(--muted);margin-bottom:7px}select,input,button{font:inherit}select,input{width:100%;background:var(--card2);border:1px solid #35435e;color:var(--text);border-radius:11px;padding:12px;font-size:16px}button{border:0;border-radius:14px;padding:14px;font-weight:800;cursor:pointer}.result{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.win{background:#123a2a;color:#a8ffd0}.lose{background:#421d27;color:#ffb5bd}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.stat{text-align:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}.num{font-size:22px;font-weight:900}.small{font-size:11px;color:var(--muted)}h2{font-size:17px;margin:22px 2px 9px}.toolbar{display:flex;gap:8px}.secondary{background:#25314a;color:#d9e1ef}.danger{background:#3a2026;color:#ffadb5}.chart{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px}.chart canvas{width:100%;height:230px;display:block}.table{width:100%;border-collapse:collapse;font-size:13px}.table th,.table td{padding:9px 6px;border-bottom:1px solid var(--line);text-align:left}.right{text-align:right!important}.empty{color:var(--muted);padding:15px;text-align:center}.hint{color:var(--muted);font-size:12px;line-height:1.6;margin-top:8px}
+@media(max-width:480px){.grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(3,1fr)}}
+</style>
+<style>
+.memo-btn{border:0;background:none;font-size:18px;cursor:pointer;padding:2px 6px}
+.memo-empty{color:#8b93a7}
+.memo-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:9999;padding:18px}
+.memo-modal.show{display:flex}
+.memo-box{width:min(520px,100%);background:#111827;border-radius:16px;padding:18px;box-shadow:0 10px 40px #0008}
+.memo-box textarea{width:100%;box-sizing:border-box;background:#1b263d;border:1px solid #35435e;color:#f5f7fb;border-radius:11px;padding:12px;font:inherit}
+.memo-actions{display:flex;gap:8px;margin-top:10px}
+.memo-actions button{flex:1}
+</style><style>
+.history-toggle{width:100%;margin-top:10px;background:#25314a;color:#d9e1ef}
+</style>
+<style>
+.env-row{display:grid;grid-template-columns:1fr auto;gap:8px}.drive-status{font-size:12px;color:var(--muted);margin-top:8px}.drive-ok{color:#7ee2a8}.drive-warn{color:#ffd27d}.drive-error{color:#ff9da7}.env-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+@media(max-width:480px){.env-row{grid-template-columns:1fr}.env-actions{grid-template-columns:1fr}}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="card" id="codeTools" style="margin-bottom:12px">
+    <div class="label">🛠️ コード保存・コピー</div>
+    <div class="toolbar">
+      <button class="secondary" id="copyHtmlBtn">📋 HTMLを一括コピー</button>
+      <button class="secondary" id="saveHtmlBtn">💾 HTMLを保存</button>
+    </div>
+    <div id="codeStatus" class="hint">このページ自身のHTMLを丸ごとコピー・保存できます。</div>
+  </div>
+  <div class="title">🎮 シャドバ戦績カウンター</div>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <div class="label">自分のデッキ</div>
+        <select id="myDeck"></select>
+      </div>
+      <div>
+        <div class="label">相手のデッキ</div>
+        <select id="oppDeck"></select>
+      </div>
+      <div>
+        <div class="label">先攻 / 後攻</div>
+        <select id="turn"><option>先攻</option><option>後攻</option></select>
+      </div>
+    </div>
+    <div class="result">
+      <button class="win" id="winBtn">🟢 勝ち</button>
+      <button class="lose" id="loseBtn">🔴 負け</button>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <div class="label">📝 この試合のメモ（任意）</div>
+      <textarea id="gameMemo" rows="3" placeholder="例：7ターン目の判断ミス。次は○○をキープ"></textarea>
+    </div>
+    <div class="hint">デッキを選んで「勝ち」か「負け」を1タップ。記録はこのスマホに保存されます。</div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="small">勝率</div><div class="num" id="rate">0%</div></div>
+    <div class="stat"><div class="small">勝ち</div><div class="num" id="wins">0</div></div>
+    <div class="stat"><div class="small">負け</div><div class="num" id="losses">0</div></div>
+  </div>
+
+  <h2>📈 勝率の推移</h2>
+  <div class="chart"><canvas id="trend"></canvas></div>
+
+  <h2>🃏 デッキ別勝率</h2>
+  <div class="chart"><canvas id="deckChart"></canvas></div>
+
+  <h2>⚔️ 相手デッキ別勝率</h2>
+  <div class="chart"><canvas id="oppChart"></canvas></div>
+
+  <h2>🥧 対戦した相手デッキの割合</h2>
+  <div class="chart"><canvas id="oppPie"></canvas></div>
+
+  <h2>⚔️ 相手デッキ別 勝敗</h2>
+  <div class="chart"><canvas id="oppWinLoss"></canvas></div>
+
+  <h2>📋 戦績</h2>
+  <div class="card">
+    <div id="tableWrap" class="empty">まだ戦績がありません。</div>
+  </div>
+
+
+  <h2>🔥 直近の戦績</h2>
+  <div class="stats" id="recentStats"></div>
+
+  <h2>📅 期間別戦績</h2><div class="stats" id="periodStats"></div>
+<h2>🕐 時間帯別勝率</h2><div class="card" id="timeStats"></div>
+<h2>🧩 負けの原因</h2><div class="card" id="lossCauseStats"></div>
+<h2>🏆 連勝・連敗</h2>
+  <div class="stats" id="streakStats"></div>
+
+  <h2>🧭 先攻・後攻</h2>
+  <div class="chart"><canvas id="turnChart"></canvas></div>
+
+  <h2>📊 相手デッキ別 勝率ランキング</h2>
+  <div class="card" id="matchupTable"></div>
+
+  <h2>🧠 集中力チェック</h2>
+  <div class="chart"><canvas id="sessionChart"></canvas></div>
+  <div class="hint">5戦ごとの勝率を表示します。後半で勝率が落ちるか確認できます。</div>
+
+  <h2>🏆 デッキ分析</h2>
+  <div class="card">
+    <div class="label">分析する自分のデッキ</div>
+    <select id="analysisDeck"></select>
+    <div id="deckAnalysis" style="margin-top:12px"></div>
+  </div>
+
+  <h2>🗂️ 戦績環境</h2>
+  <div class="card">
+    <div class="label">今記録している環境</div>
+    <div class="env-row">
+      <select id="environmentSelect"></select>
+      <button class="secondary" id="deleteEnvironmentBtn">この環境を削除</button>
+    </div>
+    <div class="env-actions">
+      <input id="newEnvironment" placeholder="例：第2弾">
+      <button class="secondary" id="addEnvironmentBtn">環境を追加</button>
+    </div>
+    <div class="hint">環境ごとに戦績・デッキ・メモを完全に分離します。第1弾、第2弾…と増やしても混ざりません。</div>
+  </div>
+
+  <h2>💾 戦績バックアップ</h2>
+  <div class="card">
+    <div class="toolbar">
+      <button class="secondary" id="backupBtn">⬇️ 戦績を保存</button>
+      <button class="secondary" id="restoreBtn">⬆️ 戦績を復元</button>
+    </div>
+    <input id="restoreFile" type="file" accept=".json,application/json" style="display:none">
+    <div class="hint">戦績データだけをJSONで保存・復元できます。スマホ変更時の引っ越しにも使えます。</div>
+  </div>
+
+  <h2>☁️ Google Drive 自動バックアップ</h2>
+  <div class="card">
+    <button class="secondary" id="driveConnectBtn">Google Driveに接続</button>
+    <div id="driveStatus" class="drive-status">未接続。接続すると、このアプリで作成したバックアップを環境ごとにDriveへ保存します。</div>
+    <div class="hint">初回だけGoogleアカウントの許可が必要です。以後、戦績を保存すると現在の環境を自動バックアップします。</div>
+  </div>
+
+  <h2>⚙️ デッキ設定</h2>
+  <div class="card">
+    <div class="grid">
+      <input id="newDeck" placeholder="例：エルフ">
+      <button class="secondary" id="addDeck">デッキを追加</button>
+    </div>
+    <div class="hint">最初から「不明」が入っています。好きなデッキ名を追加できます。</div>
+    <div class="toolbar" style="margin-top:10px">
+      <button class="secondary" id="undoBtn">↩ 最後の1戦を削除</button>
+      <button class="danger" id="resetBtn">全戦績を削除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function getFullHtml(){
+  // Clone the current document so temporary UI state does not become part of the saved source.
+  const clone=document.documentElement.cloneNode(true);
+  const tools=clone.querySelector('#codeTools');
+  // Keep the tool itself: it is useful when the saved HTML is opened again.
+  // Remove runtime-only canvas pixels and form values are intentionally not embedded.
+  clone.querySelectorAll('canvas').forEach(c=>{
+    c.width=300;c.height=150;
+  });
+  return '<!doctype html>\n'+clone.outerHTML;
+}
+async function copyFullHtml(){
+  const text=getFullHtml();
+  try{
+    await navigator.clipboard.writeText(text);
+    document.getElementById('codeStatus').textContent='✅ ページ全体のHTMLをコピーしました。';
+  }catch(e){
+    const ta=document.createElement('textarea');
+    ta.value=text;
+    ta.style.position='fixed';ta.style.opacity='0';
+    document.body.appendChild(ta);ta.focus();ta.select();
+    try{
+      document.execCommand('copy');
+      document.getElementById('codeStatus').textContent='✅ ページ全体のHTMLをコピーしました。';
+    }catch(err){
+      document.getElementById('codeStatus').textContent='❌ コピーできませんでした。HTML保存を使ってください。';
+    }
+    ta.remove();
+  }
+}
+function saveFullHtml(){
+  const text=getFullHtml();
+  const blob=new Blob([text],{type:'text/html;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='shadowverse-counter.html';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  document.getElementById('codeStatus').textContent='✅ shadowverse-counter.html を保存しました。';
+}
+document.getElementById('copyHtmlBtn').onclick=copyFullHtml;
+document.getElementById('saveHtmlBtn').onclick=saveFullHtml;
+</script>
+<script>
+const KEY='shadowverse_wb_simple_log_v3';
+const OLD_KEY='shadowverse_wb_simple_log_v1';
+const GOOGLE_CLIENT_ID='YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com';
+const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
+let root;
+let state;
+let driveToken='';
+let driveTokenClient=null;
+let driveBackupTimer=null;
+let driveFiles={};
+
+function blankEnv(){return {decks:['不明'],games:[]};}
+function loadRoot(){
+  try{
+    const current=JSON.parse(localStorage.getItem(KEY)||'null');
+    if(current&&current.environments){
+      driveFiles=current.driveFiles||{};
+      return current;
+    }
+  }catch(e){}
+  try{
+    const old=JSON.parse(localStorage.getItem(OLD_KEY)||'null');
+    if(old&&Array.isArray(old.games)&&Array.isArray(old.decks)){
+      const migrated={version:3,activeEnv:'第1弾',environments:{'第1弾':{decks:old.decks.length?old.decks:['不明'],games:old.games}},driveFiles:{}};
+      localStorage.setItem(KEY,JSON.stringify(migrated));
+      driveFiles={};
+      return migrated;
+    }
+  }catch(e){}
+  return {version:3,activeEnv:'第1弾',environments:{'第1弾':blankEnv()},driveFiles:{}};
+}
+root=loadRoot();
+if(!root.environments[root.activeEnv])root.environments[root.activeEnv]=blankEnv();
+state=root.environments[root.activeEnv];
+function saveLocal(){root.environments[root.activeEnv]=state;root.version=3;root.driveFiles=driveFiles;localStorage.setItem(KEY,JSON.stringify(root));}
+function save(){saveLocal();queueDriveBackup();}
+function esc(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function fillEnvironmentSelect(){
+  const el=document.getElementById('environmentSelect');if(!el)return;
+  const old=el.value;
+  el.innerHTML=Object.keys(root.environments).map(x=>`<option>${esc(x)}</option>`).join('');
+  el.value=root.environments[old]?old:root.activeEnv;
+}
+function switchEnvironment(name){
+  if(!root.environments[name])return;
+  root.activeEnv=name;state=root.environments[name];window._historyPage=0;saveLocal();fillEnvironmentSelect();render();
+}
+function addEnvironment(){
+  const input=document.getElementById('newEnvironment'),name=input.value.trim();
+  if(!name)return;
+  if(root.environments[name]){alert('その環境はすでにあります。');return;}
+  root.environments[name]=blankEnv();root.activeEnv=name;state=root.environments[name];input.value='';window._historyPage=0;saveLocal();fillEnvironmentSelect();render();
+}
+function deleteEnvironment(){
+  const names=Object.keys(root.environments);
+  if(names.length<=1){alert('最後の1つの環境は削除できません。');return;}
+  const name=root.activeEnv;
+  if(!confirm(`「${name}」の戦績をすべて削除します。よろしいですか？`))return;
+  delete root.environments[name];
+  root.activeEnv=Object.keys(root.environments)[0];state=root.environments[root.activeEnv];
+  window._historyPage=0;saveLocal();fillEnvironmentSelect();render();
+}
+function fillSelects(){
+  const a=document.getElementById('myDeck'),b=document.getElementById('oppDeck');
+  const oldA=a.value,oldB=b.value;
+  a.innerHTML=state.decks.map(x=>`<option>${esc(x)}</option>`).join('');
+  b.innerHTML=state.decks.map(x=>`<option>${esc(x)}</option>`).join('');
+  if(state.decks.includes(oldA))a.value=oldA;
+  if(state.decks.includes(oldB))b.value=oldB;
+}
+function addGame(result){
+  const my=document.getElementById('myDeck').value;
+  const opp=document.getElementById('oppDeck').value;
+  const turn=document.getElementById('turn').value;
+  const memo=(document.getElementById('gameMemo')?.value||'').trim();
+  state.games.push({date:new Date().toISOString(),my,opp,turn,result,memo,cause:''});
+  document.getElementById('gameMemo').value='';
+  window._historyPage=0;save();render();
+}
+document.getElementById('winBtn').onclick=()=>addGame('W');
+document.getElementById('loseBtn').onclick=()=>addGame('L');
+document.getElementById('addDeck').onclick=()=>{
+  const i=document.getElementById('newDeck'),v=i.value.trim();
+  if(!v)return;
+  if(!state.decks.includes(v))state.decks.push(v);
+  i.value='';save();fillSelects();
+};
+document.getElementById('undoBtn').onclick=()=>{if(state.games.length){state.games.pop();window._historyPage=0;save();render();}};
+document.getElementById('resetBtn').onclick=()=>{
+  if(confirm('全戦績を削除します。よろしいですか？')){state.games=[];window._historyPage=0;save();render();}
+};
+
+function pct(w,n){return n?Math.round(w/n*1000)/10:0;}
+function drawBar(canvas,items,title){
+  const dpr=devicePixelRatio||1,w=canvas.clientWidth,h=230;canvas.width=w*dpr;canvas.height=h*dpr;
+  const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);
+  if(!items.length){c.fillStyle='#9aa7bd';c.font='14px sans-serif';c.fillText('データがありません',12,30);return;}
+  const pad={l:38,r:10,t:12,b:42}, cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
+  const max=100; c.strokeStyle='#2b3852';c.lineWidth=1;
+  [0,25,50,75,100].forEach(v=>{let y=pad.t+ch*(1-v/max);c.beginPath();c.moveTo(pad.l,y);c.lineTo(w-pad.r,y);c.stroke();c.fillStyle='#9aa7bd';c.font='10px sans-serif';c.fillText(v+'%',5,y+3)});
+  const bw=Math.min(42,cw/items.length*0.55), gap=cw/items.length;
+  items.forEach((it,i)=>{let x=pad.l+i*gap+(gap-bw)/2, bh=ch*it.rate/100,y=pad.t+ch-bh;
+    c.fillStyle='#6ea8fe';c.fillRect(x,y,bw,bh);
+    c.fillStyle='#f5f7fb';c.font='11px sans-serif';c.textAlign='center';c.fillText(it.rate+'%',x+bw/2,Math.max(10,y-5));
+    c.fillStyle='#9aa7bd';let label=it.name.length>7?it.name.slice(0,7)+'…':it.name;c.fillText(label,x+bw/2,h-15);
+  });
+}
+function drawLine(canvas,games){
+  const dpr=devicePixelRatio||1,w=canvas.clientWidth,h=230;canvas.width=w*dpr;canvas.height=h*dpr;
+  const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);
+  if(!games.length){c.fillStyle='#9aa7bd';c.font='14px sans-serif';c.fillText('データがありません',12,30);return;}
+  const pad={l:38,r:10,t:15,b:28},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
+  c.strokeStyle='#2b3852';c.lineWidth=1;
+  [0,25,50,75,100].forEach(v=>{let y=pad.t+ch*(1-v/100);c.beginPath();c.moveTo(pad.l,y);c.lineTo(w-pad.r,y);c.stroke();c.fillStyle='#9aa7bd';c.font='10px sans-serif';c.fillText(v+'%',5,y+3)});
+  let wins=0, pts=games.map((g,i)=>{if(g.result==='W')wins++;return {x:i+1,y:wins/(i+1)*100};});
+  c.strokeStyle='#35d07f';c.lineWidth=3;c.beginPath();
+  pts.forEach((p,i)=>{let x=pad.l+(games.length===1?cw/2:(p.x-1)/(games.length-1)*cw),y=pad.t+ch*(1-p.y/100);i?c.lineTo(x,y):c.moveTo(x,y)});
+  c.stroke();
+  if(games.length<=80){c.fillStyle='#35d07f';pts.forEach(p=>{let x=pad.l+(games.length===1?cw/2:(p.x-1)/(games.length-1)*cw),y=pad.t+ch*(1-p.y/100);c.beginPath();c.arc(x,y,2.5,0,Math.PI*2);c.fill()});}
+}
+
+function drawPie(canvas, games){
+  const dpr=devicePixelRatio||1,w=canvas.clientWidth,h=260;
+  canvas.width=w*dpr;canvas.height=h*dpr;
+  const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);
+  const m={};games.forEach(g=>m[g.opp]=(m[g.opp]||0)+1);
+  const items=Object.entries(m).sort((a,b)=>b[1]-a[1]);
+  if(!items.length){c.fillStyle='#9aa7bd';c.font='14px sans-serif';c.fillText('データがありません',12,30);return;}
+  const total=games.length,cx=Math.min(w*0.34,150),cy=h/2,r=Math.min(95,h/2-12);
+  let start=-Math.PI/2;
+  items.forEach((it,i)=>{
+    const ang=it[1]/total*Math.PI*2;
+    c.beginPath();c.moveTo(cx,cy);c.arc(cx,cy,r,start,start+ang);c.closePath();
+    c.fillStyle=`hsl(${(i*47+210)%360} 75% 62%)`;c.fill();start+=ang;
+  });
+  c.fillStyle='#151d31';c.beginPath();c.arc(cx,cy,r*0.52,0,Math.PI*2);c.fill();
+  c.fillStyle='#f5f7fb';c.font='bold 18px sans-serif';c.textAlign='center';c.fillText(total+'戦',cx,cy+6);
+  c.textAlign='left';let x=cx+r+28,y=28;
+  items.slice(0,10).forEach((it,i)=>{
+    const share=(it[1]/total*100).toFixed(1);
+    c.fillStyle=`hsl(${(i*47+210)%360} 75% 62%)`;c.fillRect(x,y-10,12,12);
+    c.fillStyle='#f5f7fb';c.font='12px sans-serif';
+    let label=it[0].length>10?it[0].slice(0,10)+'…':it[0];
+    c.fillText(label,x+18,y);
+    c.fillStyle='#9aa7bd';c.fillText(it[1]+'戦 ('+share+'%)',x+18,y+16);
+    y+=38;
+  });
+}
+
+function drawWinLoss(canvas, games){
+  const dpr=devicePixelRatio||1,w=canvas.clientWidth,h=260;
+  canvas.width=w*dpr;canvas.height=h*dpr;
+  const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);
+  const m={};
+  games.forEach(g=>{
+    if(!m[g.opp])m[g.opp]={w:0,l:0};
+    g.result==='W'?m[g.opp].w++:m[g.opp].l++;
+  });
+  const items=Object.entries(m).sort((a,b)=>(b[1].w+b[1].l)-(a[1].w+a[1].l)).slice(0,10);
+  if(!items.length){c.fillStyle='#9aa7bd';c.font='14px sans-serif';c.fillText('データがありません',12,30);return;}
+  const pad={l:42,r:10,t:18,b:48},cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
+  const max=Math.max(...items.map(x=>x[1].w+x[1].l),1);
+  c.strokeStyle='#2b3852';c.lineWidth=1;
+  for(let i=0;i<=max;i+=Math.max(1,Math.ceil(max/5))){
+    const y=pad.t+ch-(i/max)*ch;
+    c.beginPath();c.moveTo(pad.l,y);c.lineTo(w-pad.r,y);c.stroke();
+    c.fillStyle='#9aa7bd';c.font='10px sans-serif';c.fillText(i,8,y+3);
+  }
+  const gap=cw/items.length,bw=Math.min(42,gap*0.72);
+  items.forEach((it,i)=>{
+    const x=pad.l+i*gap+(gap-bw)/2;
+    const total=it[1].w+it[1].l;
+    const wh=ch*it[1].w/max, lh=ch*it[1].l/max;
+    const y=pad.t+ch-wh-lh;
+    // stacked: wins on top, losses below
+    c.fillStyle='#35d07f';c.fillRect(x,pad.t+ch-wh,bw,wh);
+    c.fillStyle='#ff5c6c';c.fillRect(x,pad.t+ch-wh-lh,bw,lh);
+    c.fillStyle='#f5f7fb';c.font='bold 10px sans-serif';c.textAlign='center';
+    if(wh>16)c.fillText(it[1].w,x+bw/2,pad.t+ch-wh/2+3);
+    if(lh>16)c.fillText(it[1].l,x+bw/2,pad.t+ch-wh-lh/2+3);
+    c.fillStyle='#9aa7bd';c.font='10px sans-serif';
+    let label=it[0].length>7?it[0].slice(0,7)+'…':it[0];
+    c.fillText(label,x+bw/2,h-16);
+  });
+  c.textAlign='left';
+  c.fillStyle='#35d07f';c.fillRect(pad.l,3,12,12);c.fillStyle='#f5f7fb';c.font='11px sans-serif';c.fillText('勝ち',pad.l+18,13);
+  c.fillStyle='#ff5c6c';c.fillRect(pad.l+58,3,12,12);c.fillStyle='#f5f7fb';c.fillText('負け',pad.l+76,13);
+}
+function groupStats(key){
+  const m={};state.games.forEach(g=>{let n=g[key];if(!m[n])m[n]={w:0,n:0};m[n].n++;if(g.result==='W')m[n].w++});
+  return Object.entries(m).map(([name,v])=>({name,rate:pct(v.w,v.n),n:v.n})).sort((a,b)=>b.n-a.n).slice(0,10);
+}
+
+function fillAnalysisDeck(){
+  const a=document.getElementById('analysisDeck'); if(!a)return;
+  const old=a.value;
+  a.innerHTML=state.decks.map(x=>`<option>${esc(x)}</option>`).join('');
+  if(state.decks.includes(old))a.value=old;
+}
+function recent(n){
+  const g=state.games.slice(-n),w=g.filter(x=>x.result==='W').length;
+  return {n:g.length,w,l:g.length-w,rate:pct(w,g.length)};
+}
+function streaks(){
+  let bestW=0,bestL=0,run=0,type='',cur=0,curType='';
+  state.games.forEach(g=>{
+    if(g.result===type)run++;else{type=g.result;run=1;}
+    if(g.result==='W')bestW=Math.max(bestW,run);else bestL=Math.max(bestL,run);
+  });
+  if(state.games.length){
+    curType=state.games[state.games.length-1].result;
+    for(let i=state.games.length-1;i>=0;i--){if(state.games[i].result!==curType)break;cur++;}
+  }
+  return {bestW,bestL,cur,curType};
+}
+function drawTurn(canvas,games){
+  drawBar(canvas,['先攻','後攻'].map(turn=>{
+    const g=games.filter(x=>(x.turn||'—')===turn),w=g.filter(x=>x.result==='W').length;
+    return {name:turn,n:g.length,rate:pct(w,g.length)};
+  }),'');
+}
+function drawSession(canvas,games){
+  const groups=[];
+  for(let i=0;i<games.length;i+=5){
+    const g=games.slice(i,i+5),w=g.filter(x=>x.result==='W').length;
+    groups.push({name:`${i+1}-${i+g.length}`,rate:pct(w,g.length),n:g.length});
+  }
+  drawBar(canvas,groups,'');
+}
+function renderMatchups(){
+  const m={};state.games.forEach(g=>{
+    if(!m[g.opp])m[g.opp]={w:0,l:0};
+    g.result==='W'?m[g.opp].w++:m[g.opp].l++;
+  });
+  const rows=Object.entries(m).map(([name,v])=>({name,w:v.w,l:v.l,n:v.w+v.l,rate:pct(v.w,v.w+v.l)}))
+    .filter(x=>x.n>=5).sort((a,b)=>b.rate-a.rate);
+  const el=document.getElementById('matchupTable');
+  if(!rows.length){el.innerHTML='<div class="empty">5戦以上対戦した相手がまだいません。</div>';return;}
+  el.innerHTML='<table class="table"><thead><tr><th>相手</th><th>戦績</th><th class="right">勝率</th></tr></thead><tbody>'+
+    rows.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.w}勝 ${x.l}敗</td><td class="right"><b>${x.rate}%</b></td></tr>`).join('')+
+    '</tbody></table><div class="hint">5戦未満の対面はランキングから除外しています。</div>';
+}
+function renderDeckAnalysis(){
+  const deck=document.getElementById('analysisDeck').value;
+  const games=state.games.filter(g=>g.my===deck),w=games.filter(g=>g.result==='W').length;
+  const fw=games.filter(g=>g.turn==='先攻'),bw=games.filter(g=>g.turn==='後攻');
+  const opp={};games.forEach(g=>{if(!opp[g.opp])opp[g.opp]={w:0,l:0};g.result==='W'?opp[g.opp].w++:opp[g.opp].l++});
+  const rows=Object.entries(opp).map(([name,v])=>({name,w:v.w,l:v.l,n:v.w+v.l,rate:pct(v.w,v.w+v.l)})).sort((a,b)=>b.n-a.n);
+  document.getElementById('deckAnalysis').innerHTML=`
+    <div class="stats">
+      <div class="stat"><div class="small">総合</div><div class="num">${pct(w,games.length)}%</div><div class="small">${w}勝 ${games.length-w}敗</div></div>
+      <div class="stat"><div class="small">先攻</div><div class="num">${pct(fw.filter(x=>x.result==='W').length,fw.length)}%</div><div class="small">${fw.length}戦</div></div>
+      <div class="stat"><div class="small">後攻</div><div class="num">${pct(bw.filter(x=>x.result==='W').length,bw.length)}%</div><div class="small">${bw.length}戦</div></div>
+    </div>
+    <h3 style="font-size:14px;margin:16px 0 8px">相手別</h3>
+    ${rows.length?'<table class="table"><thead><tr><th>相手</th><th>戦績</th><th class="right">勝率</th></tr></thead><tbody>'+
+      rows.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.w}勝 ${x.l}敗</td><td class="right">${x.rate}%</td></tr>`).join('')+
+      '</tbody></table>':'<div class="empty">まだ対戦データがありません。</div>'}`;
+}
+function renderPeriodStats(){
+  const el=document.getElementById('periodStats');if(!el)return;
+  const now=new Date(),y=now.getFullYear(),m=now.getMonth();
+  const sets=[['今月',state.games.filter(g=>{const d=new Date(g.date);return d.getFullYear()===y&&d.getMonth()===m;})],
+    ['直近7日',state.games.filter(g=>Date.now()-new Date(g.date).getTime()<=7*86400000)],
+    ['直近30日',state.games.filter(g=>Date.now()-new Date(g.date).getTime()<=30*86400000)]];
+  el.innerHTML=sets.map(([name,g])=>{const w=g.filter(x=>x.result==='W').length;return `<div class="stat"><div class="small">${name}</div><div class="num">${pct(w,g.length)}%</div><div class="small">${w}勝 ${g.length-w}敗</div></div>`}).join('');
+}
+function renderTimeStats(){
+  const el=document.getElementById('timeStats');if(!el)return;
+  const groups=[['朝 6-12',6,12],['昼 12-18',12,18],['夜 18-24',18,24],['深夜 0-6',0,6]];
+  el.innerHTML=groups.map(([name,a,b])=>{const g=state.games.filter(x=>{const h=new Date(x.date).getHours();return a<b?h>=a&&h<b:h>=a||h<b;});const w=g.filter(x=>x.result==='W').length;return `<div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line)"><span>${name}</span><b>${pct(w,g.length)}% <span class="small">(${w}勝 ${g.length-w}敗)</span></b></div>`}).join('');
+}
+function renderLossCauses(){
+  const el=document.getElementById('lossCauseStats');if(!el)return;
+  const m={};state.games.filter(g=>g.result==='L'&&g.cause).forEach(g=>m[g.cause]=(m[g.cause]||0)+1);
+  const items=Object.entries(m).sort((a,b)=>b[1]-a[1]);
+  el.innerHTML=items.length?items.map(([k,v])=>`<div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line)"><span>${esc(k)}</span><b>${v}回</b></div>`).join(''):'<div class="empty">負けの原因を記録するとここに表示されます。</div>';
+}
+function changeHistoryPage(page){window._historyPage=page;render();document.getElementById('tableWrap')?.scrollIntoView({behavior:'smooth',block:'start'});}
+function renderCompoundAnalysis(){
+  const el=document.getElementById('deckAnalysis');if(!el)return;
+  const deck=document.getElementById('analysisDeck').value,games=state.games.filter(g=>g.my===deck),m={};
+  games.forEach(g=>{const k=`${g.opp} / ${g.turn||'—'}`;if(!m[k])m[k]={w:0,n:0};m[k].n++;if(g.result==='W')m[k].w++;});
+  const rows=Object.entries(m).filter(([,v])=>v.n>=3).sort((a,b)=>b[1].n-a[1].n);
+  const old=el.querySelector('.compound-analysis');if(old)old.remove();
+  const div=document.createElement('div');div.className='compound-analysis';
+  div.innerHTML='<h3 style="font-size:14px;margin:16px 0 8px">🧠 相手×先後</h3>'+(rows.length?'<table class="table"><thead><tr><th>相手 / 先後</th><th>戦績</th><th class="right">勝率</th></tr></thead><tbody>'+rows.map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.w}勝 ${v.n-v.w}敗</td><td class="right">${pct(v.w,v.n)}%</td></tr>`).join('')+'</tbody></table>':'<div class="empty">3戦以上のデータがありません。</div>');
+  el.appendChild(div);
+}
+function render(){
+  fillSelects();fillAnalysisDeck();
+  const w=state.games.filter(g=>g.result==='W').length,n=state.games.length;
+  document.getElementById('wins').textContent=w;document.getElementById('losses').textContent=n-w;document.getElementById('rate').textContent=pct(w,n)+'%';
+  drawLine(document.getElementById('trend'),state.games);
+  drawBar(document.getElementById('deckChart'),groupStats('my'),'');
+  drawBar(document.getElementById('oppChart'),groupStats('opp'),'');
+  drawPie(document.getElementById('oppPie'),state.games);
+  drawWinLoss(document.getElementById('oppWinLoss'),state.games);
+  drawTurn(document.getElementById('turnChart'),state.games);
+  drawSession(document.getElementById('sessionChart'),state.games);
+  renderMatchups();renderDeckAnalysis();renderCompoundAnalysis();
+
+  renderPeriodStats();renderTimeStats();renderLossCauses();
+  const r10=recent(10),r20=recent(20),r50=recent(50);
+  document.getElementById('recentStats').innerHTML=[['10戦',r10],['20戦',r20],['50戦',r50]].map(x=>`<div class="stat"><div class="small">直近${x[0]}</div><div class="num">${x[1].rate}%</div><div class="small">${x[1].w}勝 ${x[1].l}敗</div></div>`).join('');
+  const st=streaks();
+  document.getElementById('streakStats').innerHTML=[
+    ['現在',st.cur?(st.cur+(st.curType==='W'?'連勝':'連敗')):'—'],
+    ['最高連勝',st.bestW+'連勝'],['最高連敗',st.bestL+'連敗']
+  ].map(x=>`<div class="stat"><div class="small">${x[0]}</div><div class="num">${x[1]}</div></div>`).join('');
+
+  const tw=document.getElementById('tableWrap');
+  if(!n){tw.className='empty';tw.innerHTML='まだ戦績がありません。';return;}
+  tw.className='';
+  const pageSize=10;
+  const totalPages=Math.max(1,Math.ceil(n/pageSize));
+  const currentPage=window._historyPage||0;
+  const startIdx=currentPage*pageSize;
+  const pageGames=state.games.slice().reverse().slice(startIdx,startIdx+pageSize);
+  tw.innerHTML='<table class="table"><thead><tr><th>#</th><th>自分</th><th>相手</th><th>先後</th><th>結果</th><th>メモ</th><th>日時</th></tr></thead><tbody>'+
+    pageGames.map((g,idx)=>{
+      const originalIndex=state.games.indexOf(g),d=new Date(g.date);
+      return `<tr><td>${n-startIdx-idx}</td><td>${esc(g.my)}</td><td>${esc(g.opp)}</td><td>${esc(g.turn||'—')}</td><td style="font-weight:800;color:${g.result==='W'?'#35d07f':'#ff5c6c'}">${g.result==='W'?'勝':'負'}</td><td>${g.memo?`<button class="memo-btn" onclick="openMemo(${originalIndex})">📝</button>`:'<span class="memo-empty">—</span>'}</td><td>${d.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'})} ${d.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}</td></tr>`;
+    }).join('')+
+    '</tbody></table>'+
+    (totalPages>1?`<button class="history-toggle" onclick="changeHistoryPage(${currentPage+1<totalPages?currentPage+1:0})">${currentPage+1<totalPages?'▼ 過去の戦績を見る':'▲ 最新の戦績に戻る'}（${currentPage+1}/${totalPages}）</button>`:'');
+}
+document.getElementById('analysisDeck').addEventListener('change',()=>{renderDeckAnalysis();renderCompoundAnalysis();});document.getElementById('environmentSelect').value=root.activeEnv;fillEnvironmentSelect();window.addEventListener('resize',render);render();
+
+function setDriveStatus(text,cls=''){
+  const el=document.getElementById('driveStatus');if(!el)return;
+  el.className='drive-status '+cls;el.textContent=text;
+}
+function driveReady(){return !!driveToken;}
+function initDriveClient(){
+  if(driveTokenClient||!window.google?.accounts?.oauth2)return;
+  if(GOOGLE_CLIENT_ID.startsWith('YOUR_')){setDriveStatus('Google CloudのOAuthクライアントIDをindex.htmlに設定すると利用できます。','drive-warn');return;}
+  driveTokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:GOOGLE_CLIENT_ID,scope:DRIVE_SCOPE,include_granted_scopes:true,
+    callback:(resp)=>{
+      if(resp.error){setDriveStatus('Google Driveへの接続に失敗しました。','drive-error');return;}
+      driveToken=resp.access_token;
+      setDriveStatus(`接続中：${root.activeEnv} を自動バックアップします。`,'drive-ok');
+      backupCurrentEnvironmentToDrive(true);
+    }
+  });
+}
+function connectDrive(){
+  if(GOOGLE_CLIENT_ID.startsWith('YOUR_')){alert('まずGoogle CloudでOAuthクライアントIDを作成し、index.htmlのYOUR_GOOGLE_OAUTH_CLIENT_IDを置き換えてください。');return;}
+  initDriveClient();
+  if(!driveTokenClient){alert('Googleの認証ライブラリを読み込んでいます。数秒後にもう一度押してください。');return;}
+  driveTokenClient.requestAccessToken({prompt:driveToken?'':'consent'});
+}
+async function driveRequest(url,options={}){
+  const headers=new Headers(options.headers||{});headers.set('Authorization','Bearer '+driveToken);
+  const res=await fetch(url,{...options,headers});
+  if(res.status===401){driveToken='';setDriveStatus('Google Driveの認証が切れました。もう一度「Google Driveに接続」を押してください。','drive-warn');throw new Error('AUTH');}
+  if(!res.ok)throw new Error('Drive '+res.status);
+  return res;
+}
+async function findDriveFile(envName){
+  const cached=driveFiles[envName];
+  if(cached){
+    try{await driveRequest(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(cached)}?fields=id,trashed`);return cached;}catch(e){delete driveFiles[envName];}
+  }
+  const name=`shadowverse-${envName}.json`;
+  const q=`name = '${name.replace(/'/g,"\\'")}' and trashed = false`;
+  const res=await driveRequest('https://www.googleapis.com/drive/v3/files?'+new URLSearchParams({q,spaces:'drive',fields:'files(id,name)',pageSize:'10'}));
+  const data=await res.json();
+  if(data.files?.length){driveFiles[envName]=data.files[0].id;saveLocal();return data.files[0].id;}
+  return null;
+}
+function makeDrivePayload(envName){
+  return {app:'Shadowverse WB Record',version:3,environment:envName,exportedAt:new Date().toISOString(),data:root.environments[envName]};
+}
+async function uploadDriveFile(envName,fileId){
+  const payload=JSON.stringify(makeDrivePayload(envName),null,2);
+  const blob=new Blob([payload],{type:'application/json'});
+  const boundary='-------shadowverse'+Date.now();
+  const metadata={name:`shadowverse-${envName}.json`,mimeType:'application/json'};
+  if(!fileId)metadata.parents=['root'];
+  const body=new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,JSON.stringify(metadata),
+    `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n`,blob,`\r\n--${boundary}--`
+  ]);
+  const url=fileId?`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=multipart`:'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+  const res=await driveRequest(url,{method:fileId?'PATCH':'POST',headers:{'Content-Type':`multipart/related; boundary=${boundary}`},body});
+  const data=await res.json();
+  if(data.id){driveFiles[envName]=data.id;saveLocal();}
+}
+async function backupCurrentEnvironmentToDrive(initial=false){
+  if(!driveReady())return;
+  const env=root.activeEnv;
+  try{
+    setDriveStatus(`☁️ ${env} をDriveへバックアップ中…`);
+    const id=await findDriveFile(env);
+    await uploadDriveFile(env,id);
+    setDriveStatus(`☁️ Driveバックアップ済み：${env}`,'drive-ok');
+  }catch(e){if(e.message!=='AUTH')setDriveStatus(`Driveバックアップ失敗：${env}`,'drive-error');}
+}
+function queueDriveBackup(){
+  if(!driveReady())return;
+  clearTimeout(driveBackupTimer);
+  driveBackupTimer=setTimeout(()=>backupCurrentEnvironmentToDrive(),1200);
+}
+window.addEventListener('load',()=>setTimeout(initDriveClient,700));
+function downloadBackup(){
+  const payload={app:"Shadowverse WB Record",version:3,environment:root.activeEnv,exportedAt:new Date().toISOString(),data:state};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download=`shadowverse-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function restoreBackup(file){
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const payload=JSON.parse(reader.result),data=payload.data||payload;
+      if(!data||!Array.isArray(data.games)||!Array.isArray(data.decks))throw new Error();
+      const targetEnv=(payload.environment&&String(payload.environment).trim())||root.activeEnv;
+      if(!root.environments[targetEnv])root.environments[targetEnv]=blankEnv();
+      if(!confirm(`「${targetEnv}」へバックアップの${data.games.length}戦を復元します。現在の環境の戦績は置き換わります。よろしいですか？`))return;
+      root.activeEnv=targetEnv;
+      state={decks:data.decks.length?data.decks:["不明"],games:data.games.map(g=>({
+        date:g.date||new Date().toISOString(),my:g.my||"不明",opp:g.opp||"不明",
+        turn:g.turn||"—",result:g.result==="W"?"W":"L",memo:g.memo||"",cause:g.cause||""
+      }))};
+      root.environments[targetEnv]=state;saveLocal();fillEnvironmentSelect();render();alert(`「${targetEnv}」に復元しました！`);
+    }catch(e){alert("バックアップファイルを読み込めませんでした。");}
+  };
+  reader.readAsText(file);
+}
+document.getElementById('environmentSelect').addEventListener('change',e=>switchEnvironment(e.target.value));
+document.getElementById('addEnvironmentBtn').onclick=addEnvironment;
+document.getElementById('deleteEnvironmentBtn').onclick=deleteEnvironment;
+document.getElementById('driveConnectBtn').onclick=connectDrive;
+document.getElementById("backupBtn").onclick=downloadBackup;
+document.getElementById("restoreBtn").onclick=()=>document.getElementById("restoreFile").click();
+document.getElementById("restoreFile").addEventListener("change",e=>{
+  if(e.target.files[0])restoreBackup(e.target.files[0]);e.target.value="";
+});
+if("serviceWorker" in navigator && location.protocol!=="file:"){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=3").catch(()=>{}));
+}
+</script>
+<div id="memoModal" class="memo-modal"><div class="memo-box">
+<h3>📝 試合メモ</h3><div id="memoMeta" class="hint"></div>
+<textarea id="memoText" rows="7" placeholder="この試合で気づいたこと、ミス、相手の動きなど"></textarea>
+<div class="label" style="margin-top:10px">負けた原因（任意）</div>
+<select id="memoCause"><option value="">選択しない</option><option>マリガン</option><option>プレイミス</option><option>引きが悪い</option><option>相手が上手かった</option><option>不明</option></select>
+<div class="memo-actions"><button class="secondary" id="memoCancel">キャンセル</button><button id="memoSave">保存</button><button class="secondary" id="memoDelete">削除</button></div>
+</div></div>
+<script>
+let memoIndex=-1;
+function openMemo(i){memoIndex=i;const g=state.games[i];if(!g)return;document.getElementById("memoMeta").textContent=`${g.my} vs ${g.opp} / ${g.result==="W"?"勝ち":"負け"} / ${g.turn||"—"}`;document.getElementById("memoText").value=g.memo||"";document.getElementById("memoCause").value=g.cause||"";document.getElementById("memoModal").classList.add("show")}
+function closeMemo(){document.getElementById("memoModal").classList.remove("show");memoIndex=-1}
+document.getElementById("memoCancel").onclick=closeMemo;
+document.getElementById("memoSave").onclick=()=>{if(memoIndex<0)return;state.games[memoIndex].memo=document.getElementById("memoText").value.trim();state.games[memoIndex].cause=document.getElementById("memoCause").value;save();render();closeMemo()};
+document.getElementById("memoDelete").onclick=()=>{if(memoIndex<0)return;if(confirm("この試合のメモを削除しますか？")){state.games[memoIndex].memo="";state.games[memoIndex].cause="";save();render();closeMemo()}};
+document.getElementById("memoModal").onclick=e=>{if(e.target.id==="memoModal")closeMemo()};
+</script></body>
+</html>
